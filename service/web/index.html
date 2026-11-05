@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coding Assist</title>
+<!--
+  Deliberately self-contained: no CDN, no web fonts, no analytics. Clinical networks are frequently
+  air-gapped or egress-filtered, and a page that silently needs tailwind.cdn to lay out is a page
+  that breaks on the ward. Everything below is inline.
+
+  The note text in the textarea is POSTed to this same origin and nowhere else.
+-->
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#fff; --ink:#15181d; --muted:#6b7280; --line:#e3e6ea;
+    --auto:#0f7b4f; --auto-bg:#e9f6f0; --defer:#9a6400; --defer-bg:#fdf5e3;
+    --accent:#1f4f8f; --warn:#a4262c;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#14161a; --panel:#1b1e24; --ink:#e8eaed; --muted:#9aa3af; --line:#2b2f37;
+      --auto:#5fd3a0; --auto-bg:#142a22; --defer:#e5b65c; --defer-bg:#2a2314;
+      --accent:#79a9e8; --warn:#e88b90;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14161a; --panel:#1b1e24; --ink:#e8eaed; --muted:#9aa3af; --line:#2b2f37;
+    --auto:#5fd3a0; --auto-bg:#142a22; --defer:#e5b65c; --defer-bg:#2a2314;
+    --accent:#79a9e8; --warn:#e88b90;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,
+            "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 64px}
+  header{display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;justify-content:space-between;
+         margin-bottom:4px}
+  h1{font-size:19px;margin:0;font-weight:650;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13px}
+  .bannerwrap{margin:16px 0 0}
+  .banner{border-radius:8px;padding:10px 12px;font-size:13px;border:1px solid var(--line);
+          background:var(--panel)}
+  .banner.warn{border-color:var(--warn);color:var(--warn)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+  @media (max-width:860px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+            margin:0 0 10px;font-weight:600}
+  textarea{width:100%;min-height:300px;resize:vertical;padding:11px;border-radius:8px;
+           border:1px solid var(--line);background:var(--bg);color:var(--ink);
+           font:13px/1.55 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}
+  label{font-size:13px;color:var(--muted)}
+  select,button{font:inherit;padding:7px 11px;border-radius:7px;border:1px solid var(--line);
+                background:var(--bg);color:var(--ink)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;
+                 cursor:pointer}
+  button.primary:disabled{opacity:.55;cursor:default}
+  button.ghost{cursor:pointer}
+  .tier{margin-bottom:18px}
+  .tierhead{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+  .tierhead strong{font-size:13px;letter-spacing:.03em;text-transform:uppercase}
+  .tierhead .n{color:var(--muted);font-size:12px}
+  .auto .tierhead strong{color:var(--auto)}
+  .defer .tierhead strong{color:var(--defer)}
+  ul{list-style:none;margin:0;padding:0}
+  li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;margin-bottom:5px;
+     font-size:14px}
+  .auto li{background:var(--auto-bg)}
+  .defer li{background:var(--defer-bg)}
+  .code{font:600 14px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;min-width:84px}
+  .bar{flex:1;height:5px;border-radius:3px;background:rgba(127,127,127,.22);overflow:hidden}
+  .bar i{display:block;height:100%}
+  .auto .bar i{background:var(--auto)} .defer .bar i{background:var(--defer)}
+  .p{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px;min-width:74px;
+     text-align:right}
+  .empty{color:var(--muted);font-size:13px;padding:6px 0}
+  .meta{margin-top:18px;font-size:12px;color:var(--muted);line-height:1.7}
+  .meta code{font-size:11px}
+  .kv{display:flex;gap:6px;flex-wrap:wrap}
+  .kv span{border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+  footer{margin-top:28px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);
+         padding-top:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Coding Assist</h1>
+      <div class="sub">Confidence-tiered ICD suggestions. Auto-accepted codes clear a calibrated
+        precision bar; everything else is deferred to you.</div>
+    </div>
+    <button class="ghost" id="theme" title="Toggle light/dark">◐</button>
+  </header>
+
+  <div class="bannerwrap" id="banners"></div>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Discharge note</h2>
+      <textarea id="note" placeholder="Paste the note text here.&#10;&#10;Feed the same field you trained on. If the bundle was fitted on notes with the diagnosis section removed, pasting a note that still contains it will produce over-confident suggestions."></textarea>
+      <div class="controls">
+        <label for="bar">Precision bar</label>
+        <select id="bar"></select>
+        <label for="policy">Thresholds</label>
+        <select id="policy">
+          <option value="global">global</option>
+          <option value="per-code">per-code</option>
+        </select>
+        <button class="primary" id="go">Suggest codes</button>
+        <button class="ghost" id="clear">Clear</button>
+      </div>
+      <div class="meta" id="noteinfo"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Suggestions</h2>
+      <div id="out"><div class="empty">No note submitted yet.</div></div>
+      <div class="meta" id="runinfo"></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:16px">
+    <h2>This bundle</h2>
+    <div class="kv" id="bundle"></div>
+    <div class="meta" id="bundlenote"></div>
+  </div>
+
+  <footer>
+    The note you paste is sent to this server only, and from there to the embedding endpoint
+    configured in the bundle. Nothing is written to the access log but character counts and timings.
+    Suggestions are decision support: a clinical coder remains accountable for the final code set.
+  </footer>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = x => (x === null || x === undefined || Number.isNaN(x)) ? "—" : (+x).toFixed(3);
+let META = null;
+
+$("#theme").onclick = () => {
+  const now = document.documentElement.getAttribute("data-theme");
+  const next = now === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try { localStorage.setItem("ca-theme", next); } catch (e) {}
+};
+try { const t = localStorage.getItem("ca-theme"); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+
+function banner(msg, warn) {
+  const d = document.createElement("div");
+  d.className = "banner" + (warn ? " warn" : "");
+  d.textContent = msg;
+  $("#banners").appendChild(d);
+}
+
+async function loadMeta() {
+  try {
+    const r = await fetch("meta");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    META = await r.json();
+  } catch (e) {
+    banner("Cannot reach the local service (" + e.message + "). Is `icdassist serve` running?", true);
+    $("#go").disabled = true;
+    return;
+  }
+  const keys = Object.keys(META.bars).sort().reverse();
+  $("#bar").innerHTML = keys.map(k => {
+    const b = META.bars[k];
+    const cov = b.eval_coverage === null || b.eval_coverage === undefined ? "" :
+      "  (auto-codes " + (100 * b.eval_coverage).toFixed(0) + "% of workload)";
+    return `<option value="${k}"${+k === META.default_bar ? " selected" : ""}>${k}${cov}</option>`;
+  }).join("");
+  $("#policy").value = META.default_policy || "global";
+
+  $("#bundle").innerHTML = [
+    ["encoder", META.encoder],
+    ["dim", META.embedding_dim],
+    ["codes in label space", META.n_labels],
+    ["probe fitted on", (META.fitted || "?") + " notes"],
+    ["verified on", (META.eval_notes || "?") + " notes"],
+    ["ECE (decision region)", fmt(META.ece_decision_region)]
+  ].map(([k, v]) => `<span>${k}: <b>${v}</b></span>`).join("");
+
+  const rows = keys.map(k => {
+    const b = META.bars[k];
+    const ci = b.coverage_ci ? ` [${fmt(b.coverage_ci[0])}, ${fmt(b.coverage_ci[1])}]` : "";
+    return `bar ${k} → threshold ${fmt(b.threshold)}, held-out precision ${fmt(b.eval_precision)}, ` +
+           `coverage ${fmt(b.eval_coverage)}${ci}` + (b.bar_met === false ? "  ⚠ BAR NOT MET" : "");
+  });
+  $("#bundlenote").innerHTML = rows.join("<br>") +
+    "<br><br>Coverage is the share of the true coding workload auto-accepted. " +
+    "Thresholds were fitted on a calibration split and the numbers above measured on a disjoint " +
+    "evaluation split.";
+  keys.filter(k => META.bars[k].bar_met === false).forEach(k =>
+    banner(`Precision bar ${k} did not hold on held-out data in this bundle. Do not operate at that tier.`, true));
+}
+
+function render(res) {
+  const sec = (cls, title, items, note) => {
+    const li = items.length ? items.map(it => `
+      <li><span class="code">${it.code}</span>
+          <span class="bar"><i style="width:${Math.max(2, Math.min(100, it.prob * 100))}%"></i></span>
+          <span class="p">${(it.prob * 100).toFixed(1)}% / ${it.threshold.toFixed(2)}</span></li>`).join("")
+      : `<li style="background:none"><span class="empty">${note}</span></li>`;
+    return `<div class="tier ${cls}"><div class="tierhead"><strong>${title}</strong>
+            <span class="n">${items.length}</span></div><ul>${li}</ul></div>`;
+  };
+  $("#out").innerHTML =
+    sec("auto", "Auto-accept", res.auto_accept, "Nothing cleared the bar for this note.") +
+    sec("defer", "Defer to coder", res.defer, "No further candidates above the display floor.");
+  $("#runinfo").innerHTML =
+    `bar ${res.bar} · ${res.policy} thresholds · ${res.latency_ms} ms · ` +
+    `${res.auto_accept.length} auto / ${res.defer.length} deferred` +
+    (res.truncated ? "<br><b>Note was truncated</b> to the encoder's limit before embedding." : "") +
+    "<br>Percentages are the model's probability for that code; the second number is the threshold it had to clear.";
+}
+
+$("#note").addEventListener("input", () => {
+  const n = $("#note").value.length;
+  $("#noteinfo").textContent = n ? n.toLocaleString() + " characters" : "";
+});
+
+$("#clear").onclick = () => {
+  $("#note").value = ""; $("#noteinfo").textContent = "";
+  $("#out").innerHTML = '<div class="empty">No note submitted yet.</div>';
+  $("#runinfo").textContent = "";
+};
+
+$("#go").onclick = async () => {
+  const text = $("#note").value.trim();
+  if (!text) { $("#out").innerHTML = '<div class="empty">Paste a note first.</div>'; return; }
+  $("#go").disabled = true;
+  $("#out").innerHTML = '<div class="empty">Embedding and scoring…</div>';
+  $("#runinfo").textContent = "";
+  try {
+    const r = await fetch("code", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, bar: +$("#bar").value, policy: $("#policy").value })
+    });
+    const js = await r.json();
+    if (!r.ok) throw new Error(js.error || ("HTTP " + r.status));
+    render(js);
+  } catch (e) {
+    $("#out").innerHTML = `<div class="banner warn">${e.message}</div>`;
+  } finally {
+    $("#go").disabled = false;
+  }
+};
+
+loadMeta();
+</script>
+</body>
+</html>

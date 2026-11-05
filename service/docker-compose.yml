@@ -1,0 +1,52 @@
+# Two containers: the encoder, and this service. Nothing else, and no internet access at run time.
+#
+#   1. docker compose up -d ollama
+#   2. docker compose exec ollama ollama pull qwen3-embedding:8b     # ~6 GB, once
+#   3. put your notes at ./data/notes.jsonl  (see icdassist/schema.py for the three-line contract)
+#   4. docker compose run --rm icdassist fit --notes /data/notes.jsonl --out /bundle
+#   5. docker compose up -d icdassist        then open http://127.0.0.1:8080
+#
+# Step 4 is the only step that reads clinical text, and it reads it from a volume on your own host
+# and sends it only to the `ollama` container on this compose network.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    # Not published to the host: only the icdassist container needs to reach it. Publishing it would
+    # put an unauthenticated model server on your network.
+    expose:
+      - "11434"
+    # Uncomment for an NVIDIA GPU. Without one, ollama runs the encoder on CPU -- workable for
+    # qwen3-embedding:0.6b, painfully slow for :8b. See DEPLOY.md for the size/accuracy trade-off.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  icdassist:
+    build: .
+    image: icdassist:0.1.0
+    restart: unless-stopped
+    depends_on:
+      - ollama
+    environment:
+      ICDASSIST_EMBED_URL: http://ollama:11434/api/embed
+      ICDASSIST_ENCODER: qwen3-embedding:8b
+      # Set a shared token if you expose this beyond localhost. It is a speed bump, not an
+      # authentication system -- put your own reverse proxy and SSO in front of it.
+      # ICDASSIST_TOKEN: change-me
+    volumes:
+      - ./bundle:/bundle
+      - ./data:/data
+    # 127.0.0.1 on the left: reachable from this host only. Change it only behind your own auth.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+volumes:
+  ollama-models:

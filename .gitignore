@@ -1,0 +1,23 @@
+# Nothing derived from clinical data belongs in this repository. These patterns are here so that a
+# copy of the repo used for real work cannot commit its own outputs by accident.
+data/
+bundle*/
+embeddings/
+*.npy
+*.npz
+*.parquet
+*.duckdb
+*_predictions.jsonl
+*_probs.npy
+*_gold.json
+*.pt
+
+# The synthetic corpus and bundles the demo writes
+service/data/
+service/bundle*/
+service/demo/*.jsonl
+
+__pycache__/
+*.pyc
+.venv/
+.DS_Store

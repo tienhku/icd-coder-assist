@@ -1,0 +1,9 @@
+# The entire runtime dependency list. Two packages, both pure-ish and ubiquitous.
+#
+# There is no torch, no transformers, no fastapi and no uvicorn here, and that is a design decision
+# rather than an omission: the probe is a single linear layer that numpy fits in about two minutes,
+# the HTTP layer is the standard library, and the heavy encoder lives in a separate process the
+# operator already has to run. A short dependency list is what gets this through a hospital's
+# software review.
+numpy>=1.24
+requests>=2.28
